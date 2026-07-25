@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Light Table — AI image detector</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔦</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&family=Big+Shoulders:opsz,wght@10..72,500;10..72,700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="masthead">
+  <div class="wordmark">
+    <span class="mark-main">Light Table</span>
+    <span class="mark-sub">image provenance instrument</span>
+  </div>
+  <div id="model-status" class="model-status" data-state="loading">classifier: warming up</div>
+</header>
+
+<main class="bench">
+  <section id="light-table" class="light-table" tabindex="0" role="button"
+           aria-label="Drop an image here, click to browse, or paste from clipboard">
+    <div class="table-glow"></div>
+    <img id="preview" alt="Specimen under inspection" hidden>
+    <div id="scan-beam" class="scan-beam" hidden></div>
+    <div id="drop-hint" class="drop-hint">
+      <svg viewBox="0 0 48 48" aria-hidden="true"><rect x="6" y="10" width="36" height="28" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="17" cy="20" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M6 33l11-9 8 6 9-8 8 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+      <p class="hint-main">Place an image on the light table</p>
+      <p class="hint-sub">drop it here, click to browse, or paste from clipboard</p>
+    </div>
+    <input type="file" id="file-input" accept="image/*" hidden>
+  </section>
+
+  <section id="verdict-panel" class="verdict-panel" data-state="idle" aria-live="polite">
+    <p class="panel-eyebrow">Verdict</p>
+    <h1 id="verdict-label" class="verdict-label">Awaiting specimen</h1>
+    <p id="verdict-score" class="verdict-score">——</p>
+
+    <div class="gauge" role="img" aria-label="Scale from authentic photo to AI-generated">
+      <div class="gauge-track">
+        <div id="needle" class="needle"></div>
+      </div>
+      <div class="gauge-ends">
+        <span>photograph</span>
+        <span>ai-generated</span>
+      </div>
+    </div>
+
+    <p id="file-meta" class="file-meta"></p>
+    <ul id="evidence-list" class="evidence-list"></ul>
+    <button id="reset-btn" class="reset-btn" hidden>Inspect another image</button>
+  </section>
+</main>
+
+<footer class="colophon">
+  <p>Everything runs in your browser — no image leaves this machine. No detector is
+  definitive: metadata can be stripped or forged, and classifiers misread edited or unusual
+  photos. Treat the verdict as an informed opinion, not proof.</p>
+</footer>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
