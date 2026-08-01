@@ -50,3 +50,7 @@ verdict is an informed opinion, not proof.
 | `ai_no_metadata.jpg` | AI — genuine SDXL render, metadata stripped (classifier-only path) |
 | `real_camera_photo.jpg` | authentic — Canon EOS R5 EXIF with exposure data |
 | `bare_no_metadata.png` | authentic/inconclusive — no metadata at all |
+
+---
+
+[All projects →](https://dik-garri.github.io/garry/)
