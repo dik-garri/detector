@@ -1,6 +1,11 @@
 import { analyzeBytes } from './forensics.js';
+import { trimUniformBorder, buildCropSet, median, looksLikeScreenshot } from './framing.js';
 
 const MODEL_ID = 'onnx-community/SMOGY-Ai-images-detector-ONNX';
+
+// Above this spread between edge-jittered crops the classifier is judged chaotic
+// rather than merely uncertain, and its score is discarded.
+const UNSTABLE_SPREAD = 0.25;
 
 const el = (id) => document.getElementById(id);
 const table = el('light-table');
@@ -119,18 +124,66 @@ async function handleFile(file) {
     humanSize(file.size),
   ].filter(Boolean).join('  ·  ');
 
+  const trim = img ? trimUniformBorder(img) : null;
+  const screenshot = img && looksLikeScreenshot({
+    img,
+    width: img.naturalWidth,
+    height: img.naturalHeight,
+    hasCameraExif: findings.some((f) => f.id === 'camera'),
+    hasMetadata: findings.some((f) => f.signal !== 'neutral'),
+    trim,
+  });
+
+  if (trim) {
+    findings.push({
+      id: 'framing', label: 'Framing', value: `Border cropped to ${trim.box.w}×${trim.box.h}`,
+      signal: 'neutral', hard: false,
+      detail: `The picture fills only ${Math.round(trim.areaRatio * 100)}% of the frame — the rest is a uniform border. The classifier reads padding as evidence of a real photo, so it scored the inner region instead of the whole frame.`,
+    });
+  }
+  if (screenshot) {
+    // The generic "no metadata" row says the same thing less precisely.
+    const generic = findings.findIndex((f) => f.id === 'no-metadata');
+    if (generic !== -1) findings.splice(generic, 1);
+    findings.push({
+      id: 'screenshot', label: 'Looks like a screenshot', value: 'Metadata proves nothing here',
+      signal: 'neutral', hard: false,
+      detail: screenshot === 'screen-size'
+        ? 'The dimensions match a common screen capture, and a screenshot is re-rendered from pixels — it cannot carry the provenance metadata of the image it shows. Missing generator metadata is expected here and clears nothing.'
+        : 'Large areas of a single flat colour suggest interface chrome rather than a photograph. A screenshot is re-rendered from pixels, so it cannot carry the provenance metadata of the image it shows — missing generator metadata is expected here and clears nothing.',
+    });
+  }
+
   let mlProb = null;
+  let mlStats = null;
   try {
     const classify = await loadClassifier();
-    const out = await classify(url, { top_k: 2 });
-    if (run !== currentRun) return;
-    const artificial = out.find((o) => o.label === 'artificial');
-    if (artificial) mlProb = artificial.score;
-    findings.push({
-      id: 'ml', label: 'ML classifier (Swin)', value: `${Math.round(mlProb * 100)}% artificial`,
-      signal: mlProb > 0.6 ? 'ai' : mlProb < 0.4 ? 'human' : 'neutral', hard: false,
-      detail: `A vision model trained to separate generated from photographed images scored this ${Math.round(mlProb * 100)}% likely AI. Classifiers err on heavily edited, upscaled or unusual photos — treat as one signal, not proof.`,
-    });
+    const crops = img ? buildCropSet(img, trim) : [];
+    const scores = [];
+    for (const cropUrl of crops.length ? crops : [url]) {
+      const out = await classify(cropUrl, { top_k: 2 });
+      if (run !== currentRun) return;
+      const artificial = out.find((o) => o.label === 'artificial');
+      scores.push(artificial ? artificial.score : 0);
+    }
+    const lo = Math.min(...scores), hi = Math.max(...scores);
+    mlProb = median(scores);
+    mlStats = { lo, hi, spread: hi - lo, n: scores.length };
+    const pct = Math.round(mlProb * 100);
+
+    if (mlStats.spread > UNSTABLE_SPREAD) {
+      findings.push({
+        id: 'ml', label: 'ML classifier (Swin)', value: `${Math.round(lo * 100)}–${Math.round(hi * 100)}%, unusable`,
+        signal: 'neutral', hard: false,
+        detail: `Crops differing only at the edges scored anywhere from ${Math.round(lo * 100)}% to ${Math.round(hi * 100)}% artificial. The model behaves chaotically on frames that mix a picture with other content — which is exactly what a screenshot is — so no score it produces for this image means anything. Reporting one would be picking a number at random.`,
+      });
+    } else {
+      findings.push({
+        id: 'ml', label: 'ML classifier (Swin)', value: `${pct}% artificial`,
+        signal: mlProb > 0.6 ? 'ai' : mlProb < 0.4 ? 'human' : 'neutral', hard: false,
+        detail: `A vision model trained to separate generated from photographed images scored ${pct}% likely AI — the median across ${scores.length} crops${trim ? ' of the cropped picture' : ''}. Classifiers err on heavily edited, upscaled or unusual photos — treat as one signal, not proof.`,
+      });
+    }
   } catch {
     findings.push({
       id: 'ml-fail', label: 'ML classifier', value: 'Unavailable',
@@ -140,37 +193,45 @@ async function handleFile(file) {
   }
   if (run !== currentRun) return;
 
-  renderVerdict(score(findings, mlProb), findings);
+  renderVerdict(score(findings, mlProb, mlStats), findings);
 }
 
-function score(findings, mlProb) {
+function score(findings, mlProb, mlStats) {
   const hardAi = findings.some((f) => f.signal === 'ai' && f.hard);
   const camera = findings.some((f) => f.id === 'camera');
   const softAi = findings.some((f) => f.signal === 'ai' && !f.hard && f.id !== 'ml');
+
+  // A chaotic classifier is no evidence at all. Without hard metadata to fall
+  // back on there is nothing left to judge with, so say so instead of guessing.
+  const unreliable = !hardAi && !!mlStats && mlStats.spread > UNSTABLE_SPREAD;
+  if (unreliable) return { p: 0.5, confident: false, unreliable, mlStats };
 
   let p = mlProb ?? 0.5;
   let confident = mlProb !== null;
   if (hardAi) { p = Math.max(p, 0.98); confident = true; }
   else if (softAi) p = Math.min(1, p + 0.2);
   else if (camera) p = Math.max(0.02, p - 0.22);
-  return { p, confident };
+  return { p, confident, unreliable, mlStats };
 }
 
-function renderVerdict({ p, confident }, findings) {
+function renderVerdict({ p, confident, unreliable, mlStats }, findings) {
   scanBeam.hidden = true;
   sweepNeedle(false);
   const pct = Math.round(p * 100);
-  needle.style.left = `${pct}%`;
+  needle.style.left = unreliable ? '50%' : `${pct}%`;
 
   let state, label;
-  if (!confident && p > 0.35 && p < 0.65) { state = 'unsure'; label = 'Inconclusive'; }
+  if (unreliable) { state = 'unsure'; label = 'Cannot tell'; }
+  else if (!confident && p > 0.35 && p < 0.65) { state = 'unsure'; label = 'Inconclusive'; }
   else if (p >= 0.75) { state = 'ai'; label = 'Likely AI-generated'; }
   else if (p <= 0.25) { state = 'human'; label = 'Likely authentic photo'; }
   else { state = 'unsure'; label = 'Inconclusive'; }
 
   verdictPanel.dataset.state = state;
   verdictLabel.textContent = label;
-  verdictScore.textContent = `${pct}% artificial`;
+  verdictScore.textContent = unreliable
+    ? `classifier ranged ${Math.round(mlStats.lo * 100)}–${Math.round(mlStats.hi * 100)}%`
+    : `${pct}% artificial`;
 
   const order = { ai: 0, human: 1, neutral: 2 };
   findings.sort((a, b) => (b.hard - a.hard) || (order[a.signal] - order[b.signal]));
