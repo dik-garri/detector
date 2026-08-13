@@ -71,14 +71,20 @@ proof.
 
 ## Test fixtures
 
-`test-fixtures/` contains four specimens used during development:
+`test-fixtures/` contains the specimens used during development:
 
 | file | expected verdict |
 |---|---|
 | `ai_sd_image.png` | AI — carries a Stable Diffusion `parameters` chunk |
 | `ai_no_metadata.jpg` | AI — genuine SDXL render, metadata stripped (classifier-only path) |
 | `real_camera_photo.jpg` | authentic — Canon EOS R5 EXIF with exposure data |
+| `commons_landscape.jpg` | authentic — Nikon D50 photo from Wikimedia Commons |
 | `bare_no_metadata.png` | authentic/inconclusive — no metadata at all |
+
+The framing behaviour above was verified by driving the real page in headless
+Chrome over the DevTools protocol across eleven cases: the four metadata and
+clean-image paths, both screenshots, four padded AI images, and a padded real
+photo as a false-positive control.
 
 ---
 
